@@ -1,4 +1,4 @@
-const CACHE_NAME = "med-tracker-cache-v1";
+const CACHE_NAME = "med-tracker-cache-v2";
 const ASSETS = [
   "./index.html",
   "./manifest.json",
