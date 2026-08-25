@@ -115,7 +115,7 @@ function render() {
   list.style.cssText = "display:flex;flex-direction:column;gap:12px;";
   inner.appendChild(list);
 
-  meds.forEach((med) => {
+  meds.forEach((med, index) => {
     const lastIso = doses[med.id];
     const last = lastIso ? new Date(lastIso) : null;
     const next = last ? new Date(last.getTime() + med.hours * 3600000) : null;
@@ -137,6 +137,8 @@ function render() {
             color:${canTake ? "#2E7D4F" : med.color}; background:${canTake ? "#E5F5EA" : med.bg};">
             ${canTake ? "Can take now" : "Not yet"}
           </span>
+          <button data-action="move-up" data-id="${med.id}" data-index="${index}" title="Move up" ${index === 0 ? "disabled" : ""} style="border:none;background:transparent;color:${index === 0 ? "#DEDED4" : "#8A8A82"};font-size:16px;cursor:${index === 0 ? "default" : "pointer"};line-height:1;padding:2px;">▲</button>
+          <button data-action="move-down" data-id="${med.id}" data-index="${index}" title="Move down" ${index === meds.length - 1 ? "disabled" : ""} style="border:none;background:transparent;color:${index === meds.length - 1 ? "#DEDED4" : "#8A8A82"};font-size:16px;cursor:${index === meds.length - 1 ? "default" : "pointer"};line-height:1;padding:2px;">▼</button>
           <button data-action="remove-med" data-id="${med.id}" title="Remove medication" style="border:none;background:transparent;color:#C4C4B8;font-size:16px;cursor:pointer;line-height:1;padding:2px;">✕</button>
         </div>
       </div>
@@ -227,6 +229,24 @@ function render() {
       delete doses[id];
       saveJSON(MEDS_KEY, meds);
       saveJSON(DOSES_KEY, doses);
+      render();
+    });
+  });
+  root.querySelectorAll('[data-action="move-up"]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = parseInt(btn.dataset.index, 10);
+      if (i <= 0) return;
+      [meds[i - 1], meds[i]] = [meds[i], meds[i - 1]];
+      saveJSON(MEDS_KEY, meds);
+      render();
+    });
+  });
+  root.querySelectorAll('[data-action="move-down"]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = parseInt(btn.dataset.index, 10);
+      if (i >= meds.length - 1) return;
+      [meds[i + 1], meds[i]] = [meds[i], meds[i + 1]];
+      saveJSON(MEDS_KEY, meds);
       render();
     });
   });
