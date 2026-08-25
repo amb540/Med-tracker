@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>Med Tracker</title>
+<link rel="icon" href="data:,">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #FAFAF8;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  input:focus, button:focus { outline: 2px solid #B7B7A8; outline-offset: 1px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// ---- storage ----
+const MEDS_KEY = "med-tracker-meds";     // list of med definitions
+const DOSES_KEY = "med-tracker-doses";   // last-taken timestamps
+
+const DEFAULT_MEDS = [
+  { id: "motrin", name: "Motrin", sub: "ibuprofen", hours: 6, color: "#2E6F5E", bg: "#EAF3F0" },
+  { id: "tylenol", name: "Tylenol", sub: "acetaminophen", hours: 6, color: "#1E5A8A", bg: "#EAF1F7" },
+  { id: "oxycodone", name: "Oxycodone", sub: "", hours: 6, color: "#8A4B1E", bg: "#F7EFE7" },
+];
+
+const PALETTE = [
+  { color: "#2E6F5E", bg: "#EAF3F0" },
+  { color: "#1E5A8A", bg: "#EAF1F7" },
+  { color: "#8A4B1E", bg: "#F7EFE7" },
+  { color: "#6A3E8A", bg: "#F1EAF7" },
+  { color: "#8A2E4E", bg: "#F7EAEF" },
+  { color: "#3E6A8A", bg: "#EAF0F7" },
+];
+
+function loadJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+function saveJSON(key, val) {
+  localStorage.setItem(key, JSON.stringify(val));
+}
+
+let meds = loadJSON(MEDS_KEY, null);
+if (!meds) {
+  meds = DEFAULT_MEDS;
+  saveJSON(MEDS_KEY, meds);
+}
+let doses = loadJSON(DOSES_KEY, {});
+
+function fmtDateTime(d) {
+  if (!d) return "—";
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+function fmtRemaining(ms) {
+  if (ms <= 0) return "Ready now";
+  const totalMin = Math.ceil(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h <= 0) return m + "m";
+  return h + "h " + m + "m";
+}
+function toLocalInputValue(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+    "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+}
+function slugify(name) {
+  const base = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  let id = base || "med";
+  let n = 1;
+  while (meds.some(m => m.id === id)) {
+    id = base + "-" + (++n);
+  }
+  return id;
+}
+
+function render() {
+  const now = Date.now();
+  const root = document.getElementById("root");
+  root.innerHTML = "";
+
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "min-height:100vh;padding:20px 14px 40px;";
+  const inner = document.createElement("div");
+  inner.style.cssText = "max-width:480px;margin:0 auto;";
+  wrap.appendChild(inner);
+
+  // header
+  const header = document.createElement("div");
+  header.style.cssText = "margin-bottom:20px;padding:4px 4px 0;";
+  header.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;color:#1A1A1A;">
+      <span style="font-size:22px;">💊</span>
+      <h1 style="font-size:21px;font-weight:700;margin:0;letter-spacing:-0.02em;">Med Tracker</h1>
+    </div>
+    <p style="font-size:13px;color:#8A8A82;margin:4px 0 0 30px;">Tap "Took it" to log a dose.</p>
+  `;
+  inner.appendChild(header);
+
+  const list = document.createElement("div");
+  list.style.cssText = "display:flex;flex-direction:column;gap:12px;";
+  inner.appendChild(list);
+
+  meds.forEach((med) => {
+    const lastIso = doses[med.id];
+    const last = lastIso ? new Date(lastIso) : null;
+    const next = last ? new Date(last.getTime() + med.hours * 3600000) : null;
+    const remaining = next ? next.getTime() - now : 0;
+    const canTake = !last || remaining <= 0;
+
+    const card = document.createElement("div");
+    card.style.cssText = "background:#FFFFFF;border:1px solid #ECECE6;border-radius:16px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,0.03);";
+
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:17px;font-weight:700;color:#1A1A1A;">${med.name}</span>
+          ${med.sub ? `<span style="font-size:12px;color:#A6A69C;">${med.sub}</span>` : ""}
+          <span style="font-size:11px;color:#C4C4B8;">every ${med.hours}h</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap;
+            color:${canTake ? "#2E7D4F" : med.color}; background:${canTake ? "#E5F5EA" : med.bg};">
+            ${canTake ? "Can take now" : "Not yet"}
+          </span>
+          <button data-action="remove-med" data-id="${med.id}" title="Remove medication" style="border:none;background:transparent;color:#C4C4B8;font-size:16px;cursor:pointer;line-height:1;padding:2px;">✕</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+        <div>
+          <div style="font-size:11px;color:#A6A69C;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Last taken</div>
+          <div style="font-size:14px;color:#3A3A34;margin-top:2px;">${fmtDateTime(last)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#A6A69C;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Next dose</div>
+          <div style="font-size:14px;color:#3A3A34;margin-top:2px;">${next ? fmtDateTime(next) : "Anytime"}</div>
+        </div>
+      </div>
+      ${!canTake ? `<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:${med.color};margin-bottom:12px;">
+          <span>⏱</span><span>${fmtRemaining(remaining)} remaining</span>
+        </div>` : ""}
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <button data-action="take" data-id="${med.id}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 0;border-radius:10px;border:none;font-size:14px;font-weight:700;cursor:pointer;
+          background:${canTake ? med.color : "#EFEFE9"}; color:${canTake ? "#FFF" : "#A6A69C"};">
+          ✓ Took it now
+        </button>
+        ${last ? `<button data-action="undo" data-id="${med.id}" style="padding:10px 14px;border-radius:10px;border:1px solid #ECECE6;background:#FFF;color:#A6A69C;font-size:13px;font-weight:600;cursor:pointer;">Undo</button>` : ""}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="datetime-local" data-role="manual-input" data-id="${med.id}" value="${last ? toLocalInputValue(last) : ""}" style="flex:1;padding:8px 8px;border-radius:8px;border:1px solid #ECECE6;font-size:13px;color:#3A3A34;background:#FBFBF8;" />
+        <button data-action="manual" data-id="${med.id}" style="padding:8px 12px;border-radius:8px;border:1px solid #ECECE6;background:#FFF;color:#3A3A34;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">Set</button>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+
+  // ---- Add medication form ----
+  const addCard = document.createElement("div");
+  addCard.style.cssText = "background:#FFFFFF;border:1.5px dashed #D8D8CE;border-radius:16px;padding:16px;margin-top:4px;";
+  addCard.innerHTML = `
+    <div style="font-size:14px;font-weight:700;color:#3A3A34;margin-bottom:10px;">Add a medication</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <input id="new-med-name" type="text" placeholder="Name (e.g. Aspirin)" style="padding:9px 10px;border-radius:8px;border:1px solid #ECECE6;font-size:14px;color:#3A3A34;background:#FBFBF8;" />
+      <div style="display:flex;gap:8px;">
+        <input id="new-med-hours" type="number" min="0.5" step="0.5" placeholder="Hours between doses" style="flex:1;padding:9px 10px;border-radius:8px;border:1px solid #ECECE6;font-size:14px;color:#3A3A34;background:#FBFBF8;" />
+        <button id="add-med-btn" style="padding:9px 16px;border-radius:8px;border:none;background:#1A1A1A;color:#FFF;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">Add</button>
+      </div>
+      <div id="add-med-error" style="font-size:12px;color:#A33;display:none;"></div>
+    </div>
+  `;
+  inner.appendChild(addCard);
+
+  const footer = document.createElement("p");
+  footer.style.cssText = "font-size:11px;color:#C4C4B8;text-align:center;margin-top:24px;";
+  footer.textContent = "Not medical advice — follow your prescription label and doctor's instructions.";
+  inner.appendChild(footer);
+
+  root.appendChild(wrap);
+
+  // ---- wire events ----
+  root.querySelectorAll('[data-action="take"]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      doses[btn.dataset.id] = new Date().toISOString();
+      saveJSON(DOSES_KEY, doses);
+      render();
+    });
+  });
+  root.querySelectorAll('[data-action="undo"]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      delete doses[btn.dataset.id];
+      saveJSON(DOSES_KEY, doses);
+      render();
+    });
+  });
+  root.querySelectorAll('[data-action="manual"]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const input = root.querySelector(`[data-role="manual-input"][data-id="${btn.dataset.id}"]`);
+      if (!input.value) return;
+      const picked = new Date(input.value);
+      if (isNaN(picked.getTime())) return;
+      doses[btn.dataset.id] = picked.toISOString();
+      saveJSON(DOSES_KEY, doses);
+      render();
+    });
+  });
+  root.querySelectorAll('[data-action="remove-med"]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      const med = meds.find(m => m.id === id);
+      const label = med ? med.name : "this medication";
+      if (!confirm(`Remove ${label} from your list? This won't affect anything else.`)) return;
+      meds = meds.filter(m => m.id !== id);
+      delete doses[id];
+      saveJSON(MEDS_KEY, meds);
+      saveJSON(DOSES_KEY, doses);
+      render();
+    });
+  });
+
+  const addBtn = document.getElementById("add-med-btn");
+  addBtn.addEventListener("click", () => {
+    const nameInput = document.getElementById("new-med-name");
+    const hoursInput = document.getElementById("new-med-hours");
+    const errEl = document.getElementById("add-med-error");
+    const name = nameInput.value.trim();
+    const hours = parseFloat(hoursInput.value);
+
+    if (!name) {
+      errEl.textContent = "Enter a medication name.";
+      errEl.style.display = "block";
+      return;
+    }
+    if (!hours || hours <= 0) {
+      errEl.textContent = "Enter how many hours between doses.";
+      errEl.style.display = "block";
+      return;
+    }
+    const palette = PALETTE[meds.length % PALETTE.length];
+    const newMed = {
+      id: slugify(name),
+      name,
+      sub: "",
+      hours,
+      color: palette.color,
+      bg: palette.bg,
+    };
+    meds = [...meds, newMed];
+    saveJSON(MEDS_KEY, meds);
+    render();
+  });
+}
+
+render();
+setInterval(render, 30000);
+</script>
+</body>
+</html>
